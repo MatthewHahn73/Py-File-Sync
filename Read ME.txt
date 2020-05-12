@@ -1,0 +1,8 @@
+# File-Sync
+
+Quick script for syncing files between an external drive and local machine
+
+ <dl>
+  <dt>Required resources list:</dt>
+  <dd>Dirsync (https://pypi.org/project/dirsync/)<br/></dd>
+</dl>
