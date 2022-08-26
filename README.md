@@ -1,8 +1,8 @@
-# File-Sync
+<p>Python app for previewing, syncing, and logging changes made between two given directories</p>
 
-Quick script for syncing files between an external drive and local machine<br/>
-  
- <dl>
-  <dt>Required resources list:</dt>
-  <dd>-dirsync (https://pypi.org/project/dirsync/) <br/></dd>
-</dl>
+<h1>Required Modules</h1>
+<ul>
+    <li>dirsync - <a href="https://pypi.org/project/dirsync/">Link</href></li>
+    <li>PyQt5 - <a href="https://pypi.org/project/PyQt5/">Link</href></li>
+    <li>qdarkgraystyle - <a href="https://pypi.org/project/qdarkgraystyle/">Link</href></li>
+</ul>
