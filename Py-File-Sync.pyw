@@ -1,12 +1,51 @@
+"""
+File Sync GUI
+
+Future Features
+    TODO
+
+Required Software
+    -Python 
+        -Version >= 3.6
+        -Installation: https://www.python.org/downloads/
+    -Python Modules
+        -PYQT5
+            -Purpose: GUI Interface
+            -Installation: https://pypi.org/project/PyQt5/
+            -Documentation: https://www.riverbankcomputing.com/static/Docs/PyQt5/
+        -dark_orange (Modified Theme)
+            -Purpose: GUI Theme
+            -Installation: https://github.com/sommerc/pyqt-stylesheets/blob/master/pyqtcss/src/dark_orange/style.qss
+        -dirsync
+            -Purpose: Directory Syncing
+            -Installation: https://pypi.org/project/dirsync/
+        
+Functionality
+    -Preview
+        -Preview the changes that would be made between the two given directories
+            -Fails if one or more directories is invalid
+    -Sync 
+        -Syncs the file structure between two directories
+            -Updates existing files by timestamp differences
+            -Updates folder names
+"""
+
+
 import os
+import sys
 import logging
 import datetime
 import json
-import qdarkgraystyle
 from dirsync import sync
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+from Files.Modules import \
+    QTextEditLogger as QTEL \
+    , QThreadWorker as QTW \
+
+#Error Template
+ERROR_TEMPLATE = "A {0} exception occurred. Arguments:\n{1!r}"
 
 #Fonts
 Custom_Font = QFont("Arial Black", 9)
@@ -16,42 +55,21 @@ Custom_Font_Small = QFont("Arial Black", 8)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-class QTextEditLogger(logging.Handler, QObject):
-    sigLog = pyqtSignal(str)
+class Sync():
     def __init__(self):
-        logging.Handler.__init__(self)
-        QObject.__init__(self)
+       pass
+               
+    def Require_Syncing(self, Host, Dest):
+        return True
+        
+    def Sync_Files(self, Host, Dest, VB): 
+        sync(Host, Dest, action='sync', verbose=VB, logger=logger, exclude=(r'^(?:.*[\\/])?[_.][^_].*$',)) #Excludes files and folders that start with . or _
 
-    def emit(self, logRecord):
-        Datetime = str(datetime.date.today()) + ' ' + str(datetime.datetime.now().strftime("%H:%M:%S"))
-        Msg = str(logRecord.getMessage())
-        if Msg != '':
-            self.sigLog.emit(Datetime + ' - ' + Msg)
-            
-class Worker(QObject):
-    Complete = pyqtSignal()
+    def Report_Difference(self, Host, Dest, VB):
+        sync(Host, Dest, action='diff', verbose=VB, logger=logger, exclude=(r'^(?:.*[\\/])?[_.][^_].*$',)) #Excludes files and folders that start with . or _
 
-    def __init__(self, SO, OD, DD, LS, L):
-        super().__init__()
-        self.Sync_Object = SO
-        self.Origin_Dir_ = OD
-        self.Dest_Dir_ = DD
-        self.Log_Setting = LS
-        self.Log = L
-
-    def Difference(self):
-        self.Sync_Object.Report_Difference(self.Origin_Dir_, self.Dest_Dir_, self.Log_Setting) 
-        self.Complete.emit()
-
-    def Sync(self):
-        self.Sync_Object.Sync_Files(self.Origin_Dir_, self.Dest_Dir_, self.Log_Setting)        
-        self.Complete.emit()
-
-
-class Sync_GUI(QMainWindow):
+class SyncGUI(QMainWindow):
     Sync_Object = None
-    Save_Setting = False
-    Log_Setting = False
 
     def __init__(self):
         super().__init__()
@@ -63,7 +81,7 @@ class Sync_GUI(QMainWindow):
         
         #Menu
         Menu_Bar = self.menuBar()
-        Menu_Bar.setFont(Custom_Font_Small)
+        Menu_Bar.setFont(Custom_Font)
         Menu_Bar.setStyleSheet(
             'QMenuBar {'
                 'border-bottom: 1px solid gray'
@@ -73,59 +91,71 @@ class Sync_GUI(QMainWindow):
         #File Tab
         File_Tab = Menu_Bar.addMenu('File')
         Close_App = QAction('Close', self)
-        Close_App.setFont(Custom_Font_Small)
-        Clear_Logs = QAction('Clear Terminal Logs', self)
-        Clear_Logs.setFont(Custom_Font_Small)
+        Close_App.setFont(Custom_Font)
+        Close_App.triggered.connect(self.close)
+        Clear_Logs = QAction('Clear GUI Logs', self)
+        Clear_Logs.setFont(Custom_Font)
+        Clear_Logs.triggered.connect(lambda: self.Clear_Log_Edit())
         Clear_Log_File = QAction('Clear Log File', self)
-        Clear_Log_File.setFont(Custom_Font_Small)
+        Clear_Log_File.setFont(Custom_Font)
+        Clear_Log_File.triggered.connect(lambda: self.Clear_Log_File())
+        self.Save_Directories = QAction('Save Settings', self)
+        self.Save_Directories.setShortcut("Ctrl+S")
+        self.Save_Directories.setFont(Custom_Font)
+        self.Save_Directories.triggered.connect(lambda: self.Save_Settings())
+        File_Tab.addAction(self.Save_Directories)
         File_Tab.addAction(Clear_Logs)
         File_Tab.addAction(Clear_Log_File)
         File_Tab.addAction(Close_App)
 
         #Options Tab
         self.Options_Tab = Menu_Bar.addMenu('Options')
-        self.Save_Directories = QAction('Save Directories', self)
-        self.Save_Directories.setFont(Custom_Font_Small)
-        self.Save_Directories.setCheckable(True)
-        self.Save_Directories.triggered.connect(lambda: self.Toggle_Directories(self.Save_Directories.isChecked()))
         self.Display_Operations = QAction('Display All Logs', self)
-        self.Display_Operations.setFont(Custom_Font_Small)
+        self.Display_Operations.setFont(Custom_Font)
         self.Display_Operations.setCheckable(True)
-        self.Display_Operations.triggered.connect(lambda: self.Toggle_Logs(self.Display_Operations.isChecked()))
-        self.Options_Tab.addAction(self.Save_Directories)
         self.Options_Tab.addAction(self.Display_Operations)
 
         #App Body
         self.Layout = QGridLayout()
 
         #Set Top Grid
-        self.Origin_Label = QLabel('Origin')
+        self.Origin_Label = QLabel('Origin  ')
         self.Origin_Label.setFont(Custom_Font)
         self.Origin_Field = QLineEdit()
         self.Origin_Field.setText("")
         self.Origin_Field.setFont(Custom_Font)
         self.Origin_Field.setReadOnly(True)
-        self.Origin_Field.setMinimumWidth(420)
+        self.Origin_Field.setMinimumWidth(300)
         self.Origin_Field.setFixedHeight(28)
         self.Origin_Button = QPushButton('Browse', self)
-        self.Origin_Button.setFixedWidth(90) 
+        self.Origin_Button.setFixedWidth(80) 
         self.Origin_Button.setFixedHeight(27) 
         self.Origin_Button.setFont(Custom_Font)
         self.Origin_Button.clicked.connect(self.Open_File_Dialog_Origin)
+        self.Origin_Button_Open = QPushButton('Open', self)
+        self.Origin_Button_Open.setFixedWidth(80) 
+        self.Origin_Button_Open.setFixedHeight(27) 
+        self.Origin_Button_Open.setFont(Custom_Font)
+        self.Origin_Button_Open.clicked.connect(lambda: self.Open_Directory(self.Origin_Field.text()))
 
-        self.Dest_Label = QLabel('Target')
+        self.Dest_Label = QLabel('Target  ')
         self.Dest_Label.setFont(Custom_Font)
         self.Dest_Field = QLineEdit()
         self.Dest_Field.setText("")
         self.Dest_Field.setFont(Custom_Font)
         self.Dest_Field.setReadOnly(True)
-        self.Dest_Field.setMinimumWidth(420)
+        self.Dest_Field.setMinimumWidth(300)
         self.Dest_Field.setFixedHeight(28)
         self.Dest_Button = QPushButton('Browse', self)
-        self.Dest_Button.setFixedWidth(90) 
+        self.Dest_Button.setFixedWidth(80) 
         self.Dest_Button.setFixedHeight(27) 
         self.Dest_Button.setFont(Custom_Font)
         self.Dest_Button.clicked.connect(self.Open_File_Dialog_Target)
+        self.Dest_Button_Open = QPushButton('Open', self)
+        self.Dest_Button_Open.setFixedWidth(80) 
+        self.Dest_Button_Open.setFixedHeight(27) 
+        self.Dest_Button_Open.setFont(Custom_Font)
+        self.Dest_Button_Open.clicked.connect(lambda: self.Open_Directory(self.Dest_Field.text()))
         
         #Set Bottom Grid
         self.LogEdit = QTextEdit()
@@ -137,7 +167,7 @@ class Sync_GUI(QMainWindow):
                     padding-top: 1px; \
             }"
         )
-        Handler = QTextEditLogger()
+        Handler = QTEL.QTextEditLogger()
         Handler.sigLog.connect(self.LogEdit.append)
         logger.addHandler(Handler)    
         self.ScrollArea = QScrollArea(self)
@@ -169,45 +199,47 @@ class Sync_GUI(QMainWindow):
         self.Layout.addWidget(self.Origin_Label, 1, 1)
         self.Layout.addWidget(self.Origin_Field, 1, 2)
         self.Layout.addWidget(self.Origin_Button, 1, 3)
+        self.Layout.addWidget(self.Origin_Button_Open, 1, 4)
         self.Layout.addWidget(self.Dest_Label, 2, 1)
         self.Layout.addWidget(self.Dest_Field, 2, 2)
         self.Layout.addWidget(self.Dest_Button, 2, 3)
-        self.Layout.addWidget(self.ScrollArea, 3, 1, 1, 3)
-        self.Layout.addLayout(self.Bottom_Layout, 4, 1, 1, 3)
+        self.Layout.addWidget(self.Dest_Button_Open, 2, 4)
+        self.Layout.addWidget(self.ScrollArea, 3, 1, 1, 4)
+        self.Layout.addLayout(self.Bottom_Layout, 4, 1, 1, 4)
 
         widget = QWidget()
         widget.setLayout(self.Layout)
         self.setCentralWidget(widget)
-
-        Close_App.triggered.connect(self.close)
-        Clear_Logs.triggered.connect(self.LogEdit.clear)
-        Clear_Log_File.triggered.connect(self.Clear_Log_File)
         
         #Icon Settings
         Icon_Name = "Icon.ico"
-        Icon_Path = (os.path.dirname(os.path.realpath(__file__)) + "/Files/" + Icon_Name).replace("\\", "/")
+        Icon_Path = (os.path.dirname(os.path.realpath(__file__)) + "/Files/Icons/" + Icon_Name).replace("\\", "/")
         if not os.path.exists(Icon_Path): 
             logging.warning(Icon_Name + " couldn't be located")
             
         #Window Settings
         self.setWindowIcon(QIcon(Icon_Path))
-        self.setWindowTitle('Sync v1.25b')
-        self.setMinimumSize(600,325)
+        self.setWindowTitle('Sync v1.3b')
+        self.setMinimumSize(546,338)
         self.show()
         self.Load_Settings()
         self.setFocus()
+        self.Origin_Field.setCursorPosition(0)
+        self.Dest_Field.setCursorPosition(0)
 
     def Open_File_Dialog_Origin(self):
         dir_ = QFileDialog.getExistingDirectory(None, 'Origin Directory', 'C:\\', QFileDialog.ShowDirsOnly)
         if dir_:
             self.Origin_Field.setText(dir_)
             self.Origin_Field.setStyleSheet('color: white;')
+            self.Origin_Field.setCursorPosition(0)
             
     def Open_File_Dialog_Target(self):
         dir_ = QFileDialog.getExistingDirectory(None, 'Target Directory', 'C:\\', QFileDialog.ShowDirsOnly)
         if dir_:
             self.Dest_Field.setText(dir_)
             self.Dest_Field.setStyleSheet('color: white;')
+            self.Dest_Field.setCursorPosition(0)
 
     def Create_Required_Files(self, File_Name):
         try: 
@@ -218,59 +250,51 @@ class Sync_GUI(QMainWindow):
             if not os.path.exists(Full_Path): #If file doesn't exist, create one
                 with open(Full_Path, "w") as File:
                     pass
-        except IOError as e:
-            logging.error(e)
+        except IOError as IO:
+            logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
 
     def Load_Settings(self):
         try:
             self.Create_Required_Files("Settings.json")
             with open(os.path.dirname(os.path.realpath(__file__)) + "\\Files\\Settings.json", "r") as File:
                 Settings = json.load(File)
-                Save_Setting = Settings["SS"]
-                Log_Setting = Settings["LS"]
 
-                if(Save_Setting != "False"):
-                    File_Split = Save_Setting.split(' - ')
-                    self.Save_Directories.setChecked(True)
-                    self.Save_Setting = True
-                    self.Origin_Field.setText(File_Split[0])
-                    if(os.path.exists(File_Split[0])):
+                if not (Settings.get('Origin') is None):
+                    self.Origin_Field.setText(Settings.get('Origin'))
+                    if(os.path.exists(Settings.get('Origin'))):
                         self.Origin_Field.setStyleSheet('color: white;')
                     else:
                         self.Origin_Field.setStyleSheet('color: indianred;')
-                    if(len(File_Split) >= 2):
-                        self.Dest_Field.setText(File_Split[1])
-                        if(os.path.exists(File_Split[1])):
-                            self.Dest_Field.setStyleSheet('color: white;')
-                        else:
-                            self.Dest_Field.setStyleSheet('color: indianred;')
-                if(Log_Setting != "False"):
-                    self.Display_Operations.setChecked(True)
-                    self.Log_Setting = True
-        except IOError as e:
-            logging.error(e)
+
+                if not (Settings.get('Destination') is None):
+                    self.Dest_Field.setText(Settings.get('Destination'))
+                    if(os.path.exists(Settings.get('Destination'))):
+                        self.Dest_Field.setStyleSheet('color: white;')
+                    else:
+                        self.Dest_Field.setStyleSheet('color: indianred;')
+
+                if not (Settings.get('VerboseLogs') is None):
+                    self.Display_Operations.setChecked(Settings.get('VerboseLogs'))
+
+        except IOError as IO:
+            logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
         except:
             pass
 
     def Save_Settings(self):
         try:
-            Save_Bool, Log_Bool = "False", "False"
-            with open(os.path.dirname(os.path.realpath(__file__)) + "\\Files\\Settings.json", "w") as File:
-                if self.Save_Directories.isChecked() \
-                    and self.Origin_Field.text() != '' \
-                    and self.Dest_Field.text() != '': 
-                        OT = self.Origin_Field.text() if self.Origin_Field.text() != '' else ''
-                        DT = self.Dest_Field.text() if self.Dest_Field.text() != '' else ''
-                        Save_Bool = OT + ' - ' + DT
-                if self.Display_Operations.isChecked(): 
-                    Log_Bool = "True"
+            Path = os.path.dirname(os.path.realpath(__file__)) + "\\Files\\Settings.json"
+            with open(Path, "w") as File:
                 Config = {
-                    "SS" : Save_Bool,
-                    "LS" : Log_Bool,
+                    "Origin" : self.Origin_Field.text(),
+                    "Destination" : self.Dest_Field.text(),
+                    "VerboseLogs" : self.Display_Operations.isChecked(),
                 }       
                 File.write(json.dumps(Config))
-        except IOError as e:
-            logging.error(e)
+            self.Clear_Log_Edit()
+            logging.info("Settings saved in '" + os.path.basename(os.path.normpath(Path)) + "'")
+        except IOError as IO:
+            logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
 
     def Write_To_Log_File(self, Operation):
         try:
@@ -285,19 +309,23 @@ class Sync_GUI(QMainWindow):
                 File.write(self.LogEdit.toPlainText() + "\n\n")
                 File.write("----------------------------------------------------------------------------------\n")
                 File.write('\n\n')
-        except IOError as e:
-            logging.error(e)
+        except IOError as IO:
+            logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
 
     def Clear_Log_File(self):
         Log_Path = os.path.dirname(os.path.realpath(__file__)) + "\\Files\\Logs.log"
         try: 
-            if not os.path.exists(Log_Path): 
+            if not os.path.exists(Log_Path):
+                logging.info("Log doesn't exist at '" + Log_Path + "'")
                 return
             with open(Log_Path, "w") as File:
                 pass
-            logging.info("Log File Cleared")
-        except IOError as e:
-            logging.error(e)
+            logging.info("Log file cleared at '" + Log_Path + "'")
+        except IOError as IO:
+            logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
+
+    def Clear_Log_Edit(self):
+        self.LogEdit.clear()
 
     def Validate_And_Run(self, Operation):
         if os.path.isdir(self.Dest_Field.text()) and os.path.isdir(self.Origin_Field.text()):
@@ -311,7 +339,7 @@ class Sync_GUI(QMainWindow):
 
                         #Start Thread to Sync
                         self.Sync_Thread = QThread()
-                        self.Worker = Worker(self.Sync_Object, Origin_Dir_, Dest_Dir_, self.Log_Setting, self.LogEdit)
+                        self.Worker = QTW.QThreadWorker(self.Sync_Object, Origin_Dir_, Dest_Dir_, self.Fetch_Log_Setting(), self.LogEdit)
                         self.Worker.moveToThread(self.Sync_Thread)
                         self.Sync_Thread.started.connect(self.Worker.Sync)
                         self.Worker.Complete.connect(self.Sync_Thread.quit)
@@ -319,8 +347,9 @@ class Sync_GUI(QMainWindow):
                         self.Sync_Thread.finished.connect(lambda: self.Toggle_Complete('Sync Complete'))      
                     else:
                         logging.error('Syncing Not Required')
-                except Exception as e:
-                    logging.debug(e)
+                except Exception as E:
+                    logging.error(ERROR_TEMPLATE.format(type(E).__name__, E.args)) 
+                    
             elif Operation == "Report":
                 try:
                     if self.Sync_Object.Require_Syncing(Origin_Dir_, Dest_Dir_):
@@ -328,7 +357,7 @@ class Sync_GUI(QMainWindow):
 
                         #Start Thread to Report
                         self.Sync_Thread = QThread()
-                        self.Worker = Worker(self.Sync_Object, Origin_Dir_, Dest_Dir_, self.Log_Setting, self.LogEdit)
+                        self.Worker = QTW.QThreadWorker(self.Sync_Object, Origin_Dir_, Dest_Dir_, self.Fetch_Log_Setting(), self.LogEdit)
                         self.Worker.moveToThread(self.Sync_Thread)
                         self.Sync_Thread.started.connect(self.Worker.Difference)
                         self.Worker.Complete.connect(self.Sync_Thread.quit)
@@ -337,7 +366,7 @@ class Sync_GUI(QMainWindow):
                     else:
                         logging.error('Syncing Not Required')
                 except Exception as e:
-                    logging.debug(e)
+                    logging.error(ERROR_TEMPLATE.format(type(E).__name__, E.args)) 
         else:
             if not os.path.isdir(self.Origin_Field.text()):
                 logging.warning('Invalid Origin Directory')
@@ -364,31 +393,24 @@ class Sync_GUI(QMainWindow):
         self.Toggle_Buttons(True)
         self.Write_To_Log_File(Msg.split(" ")[0])
 
-    def Toggle_Logs(self, Toggle):
-        self.Log_Setting = Toggle 
+    def Open_Directory(self, Path):
+        if sys.platform == "win32":
+            try:
+                os.startfile(Path)
+            except IOError as IO:
+                logging.error(ERROR_TEMPLATE.format(type(IO).__name__, IO.args)) 
 
-    def Toggle_Directories(self, Toggle):
-        self.Save_Setting = Toggle
-
-    def closeEvent(self, event):
-        self.Save_Settings()
-        self.close()
-
-class Sync():
-    def __init__(self):
-       pass
-               
-    def Require_Syncing(self, Host, Dest):
-        return True
-        
-    def Sync_Files(self, Host, Dest, VB): 
-        sync(Host, Dest, action='sync', verbose=VB, logger=logger, exclude=(r'^(?:.*[\\/])?[_.][^_].*$',)) #Excludes files and folders that start with . or _
-
-    def Report_Difference(self, Host, Dest, VB):
-        sync(Host, Dest, action='diff', verbose=VB, logger=logger, exclude=(r'^(?:.*[\\/])?[_.][^_].*$',)) #Excludes files and folders that start with . or _
+    def Fetch_Log_Setting(self):
+        return self.Display_Operations.isChecked()
 
 if __name__ == '__main__':
-    app = QApplication(os.sys.argv)
-    app.setStyleSheet(qdarkgraystyle.load_stylesheet())
-    ex = Sync_GUI()
-    os.sys.exit(app.exec_())
+    Stylesheet_Path = (os.path.dirname(os.path.realpath(__file__)) + "/Files/Stylesheets/Dark_Theme.css").replace("\\", "/")
+    if not os.path.exists(Stylesheet_Path): 
+        logging.warning("Stylesheet Path: " + Stylesheet_Path + " could not be located")
+    else:
+        with open(Stylesheet_Path) as Stylesheet:
+            app = QApplication(os.sys.argv)
+            app.setStyleSheet(Stylesheet.read())
+            Main = SyncGUI()
+            Main.show()
+            os.sys.exit(app.exec_())
